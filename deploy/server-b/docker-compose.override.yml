@@ -1,0 +1,9 @@
+# Production overrides for Server B deployment.
+# Placed alongside the upstream docker-compose.yml at /opt/paperclip/repo/.
+# Docker Compose automatically merges this with docker-compose.yml.
+services:
+  db:
+    restart: unless-stopped
+    ports: !reset []  # Remove host port binding — Postgres only needs to be reachable within Docker network
+  server:
+    restart: unless-stopped
