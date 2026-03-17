@@ -10,31 +10,8 @@ REPO_URL="${PAPERCLIP_REPO_URL:-https://github.com/Superuser-HQ/paperclip.git}"
 REPO_BRANCH="${PAPERCLIP_REPO_BRANCH:-main}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# ─── Helpers ────────────────────────────────────────────────
-
-info()  { printf '  ✓ %s\n' "$1"; }
-warn()  { printf '  ⚠ %s\n' "$1" >&2; }
-fatal() { printf '  ✗ %s\n' "$1" >&2; exit 1; }
-
-check_port() {
-  local port="$1"
-  if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-    fatal "Port ${port} is already in use. Free it before deploying."
-  fi
-}
-
-wait_for_health() {
-  local url="$1"
-  local attempts="${2:-60}"
-  local i
-  for ((i = 1; i <= attempts; i += 1)); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 2
-  done
-  return 1
-}
+# shellcheck source=lib.sh
+. "${SCRIPT_DIR}/lib.sh"
 
 # ─── Prerequisites ──────────────────────────────────────────
 
@@ -44,7 +21,7 @@ echo ""
 echo "Checking prerequisites..."
 
 # Skip port checks if containers are already running (idempotent re-run)
-if docker compose -f "${REPO_DIR}/docker-compose.yml" ps -q server 2>/dev/null | grep -q .; then
+if containers_running "${REPO_DIR}/docker-compose.yml"; then
   info "Paperclip containers already running (re-run mode)"
 else
   check_port 3100
@@ -108,23 +85,13 @@ fi
 # ─── Copy override + scripts ────────────────────────────────
 
 cp "${SCRIPT_DIR}/docker-compose.override.yml" "${REPO_DIR}/docker-compose.override.yml"
-cp "${SCRIPT_DIR}/deploy.sh" "${INSTALL_DIR}/scripts/deploy.sh"
-cp "${SCRIPT_DIR}/bootstrap-board.sh" "${INSTALL_DIR}/scripts/bootstrap-board.sh"
-cp "${SCRIPT_DIR}/update.sh" "${INSTALL_DIR}/scripts/update.sh"
+cp "${SCRIPT_DIR}/"*.sh "${INSTALL_DIR}/scripts/"
 chmod +x "${INSTALL_DIR}/scripts/"*.sh
 info "Scripts and override copied"
 
 # ─── Environment file ───────────────────────────────────────
 
-ENV_FILE="${REPO_DIR}/.env"
-if [ -f "${ENV_FILE}" ]; then
-  info ".env already exists (preserving existing secrets)"
-else
-  echo "Generating .env..."
-  SECRET="$(openssl rand -hex 32)"
-  sed "s/__GENERATE_ME__/${SECRET}/" "${SCRIPT_DIR}/.env.template" > "${ENV_FILE}"
-  info ".env created with generated BETTER_AUTH_SECRET"
-fi
+generate_env_file "${SCRIPT_DIR}/.env.template" "${REPO_DIR}/.env"
 
 # ─── Build and start ────────────────────────────────────────
 
@@ -159,6 +126,6 @@ echo "  3. Register at http://localhost:3100 using the invite URL"
 echo "  4. Create the 'Superuser HQ' company via the UI"
 echo ""
 echo "Later (networking ticket):"
-echo "  - Update PAPERCLIP_PUBLIC_URL in ${ENV_FILE}"
+echo "  - Update PAPERCLIP_PUBLIC_URL in ${REPO_DIR}/.env"
 echo "  - Update PAPERCLIP_ALLOWED_HOSTNAMES if needed"
 echo "  - Restart: cd ${REPO_DIR} && docker compose up -d"

@@ -4,22 +4,10 @@
 set -euo pipefail
 
 REPO_DIR="/opt/paperclip/repo"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-info()  { printf '  ✓ %s\n' "$1"; }
-fatal() { printf '  ✗ %s\n' "$1" >&2; exit 1; }
-
-wait_for_health() {
-  local url="$1"
-  local attempts="${2:-60}"
-  local i
-  for ((i = 1; i <= attempts; i += 1)); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 2
-  done
-  return 1
-}
+# shellcheck source=lib.sh
+. "${SCRIPT_DIR}/lib.sh"
 
 # ─── Find the server container ──────────────────────────────
 
