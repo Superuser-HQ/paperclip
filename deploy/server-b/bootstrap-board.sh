@@ -46,15 +46,19 @@ info "Onboard complete"
 # ─── Bootstrap CEO ──────────────────────────────────────────
 
 echo "Running bootstrap-ceo..."
-BOOTSTRAP_OUTPUT="$(
+BOOTSTRAP_EXIT=0
+if BOOTSTRAP_OUTPUT="$(
   docker compose exec -T \
     -e PAPERCLIP_HOME=/paperclip \
     -e PAPERCLIP_PUBLIC_URL=http://localhost:3100 \
     server \
     bash -lc 'npx --yes paperclipai@latest auth bootstrap-ceo --data-dir "$PAPERCLIP_HOME" --base-url "$PAPERCLIP_PUBLIC_URL"' \
   2>&1
-)"
-BOOTSTRAP_EXIT=$?
+)"; then
+  BOOTSTRAP_EXIT=0
+else
+  BOOTSTRAP_EXIT=$?
+fi
 
 if [ "$BOOTSTRAP_EXIT" -ne 0 ] && [ "$BOOTSTRAP_EXIT" -ne 124 ]; then
   echo "Bootstrap output:"
