@@ -1,0 +1,25 @@
+# SHQ Conventions
+
+## Planning & Design Docs
+
+All SHQ-specific planning artifacts go in `doc/shq/`. Subdirectories:
+
+- `doc/shq/plans/` — implementation plans, design docs, brainstorm outputs
+- `doc/shq/adrs/` — Architecture Decision Records
+- `doc/shq/prds/` — Product Requirements Documents
+
+When using Superpowers skills (`superpowers:brainstorming`, `superpowers:writing-plans`), save plan files to `doc/shq/plans/` with descriptive filenames (e.g. `doc/shq/plans/linear-webhook-design.md`).
+
+Do **not** put SHQ docs in `doc/plans/` or `doc/plan/` — those are upstream Paperclip directories.
+
+## Rules Index
+
+Detailed rules are in sibling files:
+
+| Rule | File | What it covers |
+|------|------|----------------|
+| Doc templates | `shq-doc-templates.md` | ADR, PRD, and implementation plan formats |
+| Fork discipline | `shq-fork-discipline.md` | Isolating SHQ changes from upstream, tracking modifications |
+| Linear linking | `shq-linear-linking.md` | Branch, PR, commit, and task naming conventions |
+| Heartbeat skills | `shq-heartbeat-skills.md` | Writing autonomous skills for Paperclip's heartbeat model |
+| Paperclip dev | `paperclip-development.md` | Contract sync, company-scoping, schema change workflow |
