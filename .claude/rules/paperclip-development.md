@@ -24,4 +24,5 @@ Every domain entity must be scoped to a company. When adding new routes or servi
 1. Edit `packages/db/src/schema/*.ts`
 2. Export new tables from `packages/db/src/schema/index.ts`
 3. Run `pnpm db:generate` (compiles first, then generates migration)
-4. Run `pnpm -r typecheck` to validate
+4. Run `pnpm db:migrate` to apply the migration
+5. Run `pnpm -r typecheck` to validate

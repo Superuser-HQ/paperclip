@@ -129,7 +129,8 @@ Paperclip is a **control plane** — it doesn't run agents, it orchestrates them
 1. Edit `packages/db/src/schema/*.ts`
 2. Export new tables from `packages/db/src/schema/index.ts`
 3. `pnpm db:generate` (compiles `packages/db` first, then generates migration)
-4. `pnpm -r typecheck` to validate
+4. `pnpm db:migrate` to apply the migration
+5. `pnpm -r typecheck` to validate
 
 ## SHQ-Specific Context
 
@@ -170,7 +171,7 @@ Custom development in the fork — the largest piece of work. Does not exist ups
 | Surface | Format |
 |---------|--------|
 | Git branch | `<type>/<ticket>-<short-description>` |
-| PR title | `DEV-42: Description` |
+| PR title | `<ticket>: Description` |
 | Commits | Conventional commits (ticket already in branch name) |
 
 ### PR Governance
