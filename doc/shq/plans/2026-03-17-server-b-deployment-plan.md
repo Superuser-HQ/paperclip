@@ -226,8 +226,13 @@ if ! command -v docker >/dev/null 2>&1; then
   sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
   sudo usermod -aG docker "$USER"
   info "Docker installed"
+  warn "User '$USER' added to 'docker' group."
+  fatal "Please log out and log back in, then re-run this script for the group change to take effect."
 else
   info "Docker already installed"
+  if ! docker info >/dev/null 2>&1; then
+    fatal "Docker is installed but current user cannot connect to the daemon. Check: sudo usermod -aG docker $USER, then re-login."
+  fi
 fi
 
 # ─── Directory structure ────────────────────────────────────
@@ -341,7 +346,6 @@ Reference: `scripts/docker-onboard-smoke.sh:50-92` for the `generate_bootstrap_i
 set -euo pipefail
 
 REPO_DIR="/opt/paperclip/repo"
-CONTAINER_NAME=""
 
 info()  { printf '  ✓ %s\n' "$1"; }
 fatal() { printf '  ✗ %s\n' "$1" >&2; exit 1; }
@@ -365,8 +369,7 @@ echo "=== Paperclip Board Bootstrap ==="
 echo ""
 
 cd "${REPO_DIR}"
-CONTAINER_NAME="$(docker compose ps -q server 2>/dev/null)"
-if [ -z "${CONTAINER_NAME}" ]; then
+if ! docker compose ps -q server 2>/dev/null | grep -q .; then
   fatal "Paperclip server container not running. Run deploy.sh first."
 fi
 info "Server container found"
@@ -383,6 +386,7 @@ fi
 # ─── Onboard (creates config.json required by bootstrap-ceo) ─
 
 echo "Running onboard inside container..."
+# onboard is idempotent — safe to re-run, may warn if already done
 docker compose exec -T \
   -e PAPERCLIP_HOME=/paperclip \
   -e PAPERCLIP_DEPLOYMENT_MODE=authenticated \
@@ -403,7 +407,14 @@ BOOTSTRAP_OUTPUT="$(
     server \
     bash -lc 'npx --yes paperclipai@latest auth bootstrap-ceo --data-dir "$PAPERCLIP_HOME" --base-url "$PAPERCLIP_PUBLIC_URL"' \
   2>&1
-)" || true
+)"
+BOOTSTRAP_EXIT=$?
+
+if [ "$BOOTSTRAP_EXIT" -ne 0 ] && [ "$BOOTSTRAP_EXIT" -ne 124 ]; then
+  echo "Bootstrap output:"
+  printf '%s\n' "${BOOTSTRAP_OUTPUT}"
+  fatal "bootstrap-ceo failed with exit code ${BOOTSTRAP_EXIT}"
+fi
 
 INVITE_URL="$(
   printf '%s\n' "${BOOTSTRAP_OUTPUT}" \
@@ -484,12 +495,14 @@ cd "${REPO_DIR}"
 git pull --ff-only
 info "Code updated"
 
-# ─── Re-copy override (in case it changed in repo) ──────────
+# ─── Re-copy override + scripts (in case they changed in repo) ─
 
-OVERRIDE_SRC="${REPO_DIR}/deploy/server-b/docker-compose.override.yml"
-if [ -f "${OVERRIDE_SRC}" ]; then
-  cp "${OVERRIDE_SRC}" "${REPO_DIR}/docker-compose.override.yml"
-  info "Override file refreshed"
+DEPLOY_SRC="${REPO_DIR}/deploy/server-b"
+if [ -d "${DEPLOY_SRC}" ]; then
+  cp "${DEPLOY_SRC}/docker-compose.override.yml" "${REPO_DIR}/docker-compose.override.yml"
+  cp "${DEPLOY_SRC}/"*.sh /opt/paperclip/scripts/
+  chmod +x /opt/paperclip/scripts/*.sh
+  info "Override and deployment scripts refreshed"
 fi
 
 # ─── Rebuild and restart ────────────────────────────────────
@@ -692,8 +705,9 @@ Fix any issues found.
 
 - [ ] **Step 2: Verify compose override merges**
 
+From the repo root:
+
 ```bash
-cd /Users/geraldyeo/Code/superuserhq/internal/isengard
 cp deploy/server-b/docker-compose.override.yml .
 docker compose config
 ```
