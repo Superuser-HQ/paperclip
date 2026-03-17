@@ -201,6 +201,7 @@ Kani decides **what** to build and **why**. Rem decides **how** to build it. Spe
 
 - `origin` → `github.com:Superuser-HQ/paperclip.git` (SHQ fork)
 - `upstream` → `github.com:paperclipai/paperclip.git` (original)
+- **CRITICAL: Never create PRs, push branches, or interact with the upstream repo (`paperclipai/paperclip`). All PRs go to `Superuser-HQ/paperclip`. The `gh` default repo is set to `Superuser-HQ/paperclip` — do not override it. Upstream is public and SHQ content is confidential.**
 - `main` → SHQ working branch, periodically rebased onto upstream releases
 - SHQ changes isolated in separate files/directories to minimise merge conflicts
 - Linear webhook integration kept modular, isolated from core Paperclip server code
