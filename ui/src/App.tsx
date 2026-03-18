@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation } from "@/lib/router";
+import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
@@ -14,6 +14,7 @@ import { Projects } from "./pages/Projects";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { Issues } from "./pages/Issues";
 import { IssueDetail } from "./pages/IssueDetail";
+import { ExecutionWorkspaceDetail } from "./pages/ExecutionWorkspaceDetail";
 import { Goals } from "./pages/Goals";
 import { GoalDetail } from "./pages/GoalDetail";
 import { Approvals } from "./pages/Approvals";
@@ -23,6 +24,11 @@ import { Activity } from "./pages/Activity";
 import { Inbox } from "./pages/Inbox";
 import { CompanySettings } from "./pages/CompanySettings";
 import { DesignGuide } from "./pages/DesignGuide";
+import { InstanceSettings } from "./pages/InstanceSettings";
+import { InstanceExperimentalSettings } from "./pages/InstanceExperimentalSettings";
+import { PluginManager } from "./pages/PluginManager";
+import { PluginSettings } from "./pages/PluginSettings";
+import { PluginPage } from "./pages/PluginPage";
 import { RunTranscriptUxLab } from "./pages/RunTranscriptUxLab";
 import { OrgChart } from "./pages/OrgChart";
 import { NewAgent } from "./pages/NewAgent";
@@ -107,8 +113,12 @@ function boardRoutes() {
     <>
       <Route index element={<Navigate to="dashboard" replace />} />
       <Route path="dashboard" element={<Dashboard />} />
+      <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="company/settings" element={<CompanySettings />} />
+      <Route path="settings" element={<LegacySettingsRedirect />} />
+      <Route path="settings/*" element={<LegacySettingsRedirect />} />
+      <Route path="plugins/:pluginId" element={<PluginPage />} />
       <Route path="org" element={<OrgChart />} />
       <Route path="agents" element={<Navigate to="/agents/all" replace />} />
       <Route path="agents/all" element={<Agents />} />
@@ -125,6 +135,7 @@ function boardRoutes() {
       <Route path="projects/:projectId/issues" element={<ProjectDetail />} />
       <Route path="projects/:projectId/issues/:filter" element={<ProjectDetail />} />
       <Route path="projects/:projectId/configuration" element={<ProjectDetail />} />
+      <Route path="projects/:projectId/budget" element={<ProjectDetail />} />
       <Route path="issues" element={<Issues />} />
       <Route path="issues/all" element={<Navigate to="/issues" replace />} />
       <Route path="issues/active" element={<Navigate to="/issues" replace />} />
@@ -132,6 +143,7 @@ function boardRoutes() {
       <Route path="issues/done" element={<Navigate to="/issues" replace />} />
       <Route path="issues/recent" element={<Navigate to="/issues" replace />} />
       <Route path="issues/:issueId" element={<IssueDetail />} />
+      <Route path="execution-workspaces/:workspaceId" element={<ExecutionWorkspaceDetail />} />
       <Route path="goals" element={<Goals />} />
       <Route path="goals/:goalId" element={<GoalDetail />} />
       <Route path="approvals" element={<Navigate to="/approvals/pending" replace />} />
@@ -147,6 +159,7 @@ function boardRoutes() {
       <Route path="inbox/new" element={<Navigate to="/inbox/recent" replace />} />
       <Route path="design-guide" element={<DesignGuide />} />
       <Route path="tests/ux/runs" element={<RunTranscriptUxLab />} />
+      <Route path=":pluginRoutePath" element={<PluginPage />} />
       <Route path="*" element={<NotFoundPage scope="board" />} />
     </>
   );
@@ -154,6 +167,62 @@ function boardRoutes() {
 
 function InboxRootRedirect() {
   return <Navigate to={`/inbox/${loadLastInboxTab()}`} replace />;
+}
+
+function LegacySettingsRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/instance/settings/heartbeats${location.search}${location.hash}`} replace />;
+}
+
+function OnboardingRoutePage() {
+  const { companies, loading } = useCompany();
+  const { onboardingOpen, openOnboarding } = useDialog();
+  const { companyPrefix } = useParams<{ companyPrefix?: string }>();
+  const opened = useRef(false);
+  const matchedCompany = companyPrefix
+    ? companies.find((company) => company.issuePrefix.toUpperCase() === companyPrefix.toUpperCase()) ?? null
+    : null;
+
+  useEffect(() => {
+    if (loading || opened.current || onboardingOpen) return;
+    opened.current = true;
+    if (matchedCompany) {
+      openOnboarding({ initialStep: 2, companyId: matchedCompany.id });
+      return;
+    }
+    openOnboarding();
+  }, [companyPrefix, loading, matchedCompany, onboardingOpen, openOnboarding]);
+
+  const title = matchedCompany
+    ? `Add another agent to ${matchedCompany.name}`
+    : companies.length > 0
+      ? "Create another company"
+      : "Create your first company";
+  const description = matchedCompany
+    ? "Run onboarding again to add an agent and a starter task for this company."
+    : companies.length > 0
+      ? "Run onboarding again to create another company and seed its first agent."
+      : "Get started by creating a company and your first agent.";
+
+  return (
+    <div className="mx-auto max-w-xl py-10">
+      <div className="rounded-lg border border-border bg-card p-6">
+        <h1 className="text-xl font-semibold">{title}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+        <div className="mt-4">
+          <Button
+            onClick={() =>
+              matchedCompany
+                ? openOnboarding({ initialStep: 2, companyId: matchedCompany.id })
+                : openOnboarding()
+            }
+          >
+            {matchedCompany ? "Add Agent" : "Start Onboarding"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CompanyRootRedirect() {
@@ -234,9 +303,20 @@ export function App() {
 
         <Route element={<CloudAccessGate />}>
           <Route index element={<CompanyRootRedirect />} />
+          <Route path="onboarding" element={<OnboardingRoutePage />} />
+          <Route path="instance" element={<Navigate to="/instance/settings/heartbeats" replace />} />
+          <Route path="instance/settings" element={<Layout />}>
+            <Route index element={<Navigate to="heartbeats" replace />} />
+            <Route path="heartbeats" element={<InstanceSettings />} />
+            <Route path="experimental" element={<InstanceExperimentalSettings />} />
+            <Route path="plugins" element={<PluginManager />} />
+            <Route path="plugins/:pluginId" element={<PluginSettings />} />
+          </Route>
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
           <Route path="issues" element={<UnprefixedBoardRedirect />} />
           <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
+          <Route path="settings" element={<LegacySettingsRedirect />} />
+          <Route path="settings/*" element={<LegacySettingsRedirect />} />
           <Route path="agents" element={<UnprefixedBoardRedirect />} />
           <Route path="agents/new" element={<UnprefixedBoardRedirect />} />
           <Route path="agents/:agentId" element={<UnprefixedBoardRedirect />} />
