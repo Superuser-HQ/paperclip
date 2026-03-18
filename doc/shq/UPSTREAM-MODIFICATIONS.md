@@ -4,7 +4,9 @@ Files modified from upstream Paperclip and why. Consult this when rebasing onto 
 
 ## Modified Files
 
-(none yet — all SHQ changes are in separate files/directories)
+| File | Change | Why | Ticket |
+|------|--------|-----|--------|
+| `Dockerfile` | Commented out `VOLUME ["/paperclip"]` | Railway bans VOLUME keyword in Dockerfiles; volumes managed via Railway platform | DEV-396 |
 
 ## Added Directories
 

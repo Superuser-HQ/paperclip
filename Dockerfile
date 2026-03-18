@@ -49,7 +49,7 @@ ENV NODE_ENV=production \
   PAPERCLIP_DEPLOYMENT_MODE=authenticated \
   PAPERCLIP_DEPLOYMENT_EXPOSURE=private
 
-VOLUME ["/paperclip"]
+# VOLUME ["/paperclip"]  # Removed: Railway bans VOLUME keyword; use Railway volumes instead
 EXPOSE 3100
 
 USER node
