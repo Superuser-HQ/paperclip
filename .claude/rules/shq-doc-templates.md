@@ -97,7 +97,7 @@ linear: DEV-XXX  # (if applicable)
 
 ## Lessons Learned (Compound Engineering)
 
-Filename: `doc/shq/solutions/<category>/kebab-case-title.md`
+Filename: `doc/shq/lessons/<category>/kebab-case-title.md`
 
 Categories: `build-errors/`, `test-failures/`, `runtime-errors/`, `performance-issues/`, `database-issues/`, `security-issues/`, `ui-bugs/`, `integration-issues/`, `logic-errors/`
 
@@ -113,4 +113,4 @@ severity: critical | high | medium | low
 ---
 ```
 
-**Override:** Compound Engineering defaults to `docs/solutions/` — in this repo, always use `doc/shq/solutions/` instead.
+**Override:** Compound Engineering defaults to `docs/solutions/` — in this repo, always use `doc/shq/lessons/` instead.
