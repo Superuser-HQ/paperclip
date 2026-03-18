@@ -6,7 +6,7 @@ Files modified from upstream Paperclip and why. Consult this when rebasing onto 
 
 | File | Change | Why | Ticket |
 |------|--------|-----|--------|
-| `Dockerfile` | Commented out `VOLUME ["/paperclip"]` | Railway bans VOLUME keyword in Dockerfiles; volumes managed via Railway platform | DEV-396 |
+| `Dockerfile` | Commented out `VOLUME ["/paperclip"]`; added COPY lines for `packages/plugins/` | Railway bans VOLUME keyword; upstream added plugin packages without updating Dockerfile | DEV-396 |
 
 ## Added Directories
 
