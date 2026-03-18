@@ -199,8 +199,7 @@ if docker compose -f "${REPO_DIR}/docker-compose.yml" ps -q server 2>/dev/null |
   info "Paperclip containers already running (re-run mode)"
 else
   check_port 3100
-  check_port 5432
-  info "Ports 3100 and 5432 are free"
+  info "Port 3100 is free"
 fi
 
 # ─── Docker ─────────────────────────────────────────────────
