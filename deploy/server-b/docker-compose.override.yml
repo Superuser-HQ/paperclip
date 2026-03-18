@@ -1,0 +1,16 @@
+# Production overrides for Server B deployment.
+# Placed alongside the upstream docker-compose.yml at /opt/paperclip/repo/.
+# Docker Compose automatically merges this with docker-compose.yml.
+services:
+  db:
+    restart: unless-stopped
+    ports: !reset []  # Remove host port binding — Postgres only needs to be reachable within Docker network
+  server:
+    restart: unless-stopped
+    environment:
+      # Forward vars from .env that upstream docker-compose.yml doesn't list
+      PAPERCLIP_ALLOWED_HOSTNAMES: "${PAPERCLIP_ALLOWED_HOSTNAMES:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      CURSOR_API_KEY: "${CURSOR_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
