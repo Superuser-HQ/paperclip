@@ -9,105 +9,95 @@ linear: DEV-396
 
 ## Overview
 
-Deploy the Paperclip fork on Server B using Docker Compose with containerised PostgreSQL (separate container, same host), in `authenticated/private` mode. Server B is the control plane in the SHQ 3-server architecture.
+Deploy the Paperclip fork as the control plane in the SHQ architecture, in `authenticated/private` mode. **Primary deployment target is Railway** (managed platform). Docker Compose on a VPS is the self-hosted fallback.
 
 ## Acceptance Criteria (from ticket)
 
-- Paperclip running on Server B
-- UI accessible
+- Paperclip running
+- UI accessible via public URL
 - Database initialised with schema
 - Can create a company via UI
 
 ### Validation Plan
 
-Each acceptance criterion maps to a concrete check:
-
 | Criterion | Verification |
 |-----------|-------------|
 | Paperclip running | `/api/health` returns `{"status":"ok"}` |
-| UI accessible | HTTP 200 on `/` (via SSH tunnel during bootstrap, Tailscale later) |
-| Database initialised | `docker compose exec db psql -U paperclip -c '\dt'` lists tables (migrations auto-apply on boot) |
-| Can create a company | `bootstrap-board.sh` completes: invite generated, user registered, company created via UI |
+| UI accessible | HTTP 200 on `/` via Railway public URL |
+| Database initialised | Migrations auto-apply on boot; verify via health check |
+| Can create a company | Board user registers via invite URL, creates company via UI |
 
-## Approach
+## Approach: Railway (Primary)
 
-**Docker Compose with containerised Postgres** — uses the existing production `docker-compose.yml` which defines a Postgres 17 container and Paperclip server container on the same host. Automation scripts handle first-time setup, board bootstrapping, and updates.
+**Railway with managed Postgres** — deploy the existing Dockerfile to Railway with a Railway-provisioned PostgreSQL instance. Railway auto-detects the Dockerfile, provisions a public URL with SSL, and auto-deploys on push to `main`.
 
-### Why this approach
+### Why Railway
 
-- The production compose file already exists and is battle-tested
-- Containerised Postgres matches the ticket's explicit "PostgreSQL database" component
-- Matches the 3-server architecture: Server B runs only the control plane
-- Docker provides isolation and reproducibility on Ubuntu
+- **No VPS to manage** — managed platform handles infrastructure, SSL, restarts
+- **Public URL out of the box** — eliminates the need for Cloudflare Tunnel for webhook ingress (Linear can hit Railway directly)
+- **Managed Postgres** — provisioned in one click, auto-exposes `DATABASE_URL`, built-in backups
+- **Auto-deploy on push** — connect the private GitHub repo, every push to `main` deploys automatically
+- **Existing Dockerfile works as-is** — Railway auto-detects and builds from it
+- **Cost-effective** — Hobby plan at $5/month includes $5 usage credit, likely sufficient for the control plane workload
+
+### Architecture on Railway
+
+```
+Railway Project: "paperclip"
+├── Service: "server" (from Dockerfile)
+│   ├── Source: GitHub (Superuser-HQ/paperclip, main branch)
+│   ├── Builder: Dockerfile (auto-detected)
+│   ├── Port: 3100
+│   ├── Public domain: *.up.railway.app (auto-SSL) or custom domain
+│   └── Env: DATABASE_URL=${{Postgres.DATABASE_URL}}, BETTER_AUTH_SECRET, etc.
+└── Service: "Postgres" (Railway-managed)
+    ├── Image: Railway's SSL-enabled Postgres
+    ├── Volume: persistent (Railway-managed)
+    └── Connection: internal via railway.internal DNS
+```
+
+### What this changes vs the original 3-server design
+
+| Original Design | Railway |
+|-----------------|---------|
+| Server B = dedicated VPS | Railway-managed service |
+| Docker Compose + systemd | Railway auto-deploy from GitHub |
+| Cloudflare Tunnel for webhook ingress | Railway public URL (native SSL) |
+| Manual Postgres on the same host | Railway-managed Postgres |
+| SSH tunnel for bootstrap access | Public URL available immediately |
+| `deploy.sh` / `update.sh` scripts | Git push = deploy |
+
+### What stays the same
+
+- Server A (Kani + Rem orchestration) and Server C (worker agents) remain on VPS if applicable
+- Agent adapters and heartbeat model unchanged
+- Paperclip runs in `authenticated/private` mode
+- Board user bootstrap flow (bootstrap-ceo → invite → register)
 
 ### Storage model
 
-Both services use Docker named volumes (managed by Docker, not bind mounts):
-
-| Volume | Purpose | Backed by |
-|--------|---------|-----------|
-| `pgdata` | PostgreSQL data | Docker named volume |
-| `paperclip-data` | Paperclip home (uploads, config, secrets key) | Docker named volume |
-
-Named volumes simplify permissions (Docker handles ownership) and survive `docker compose down` / `up` cycles. Back up via `docker volume` commands or `pg_dump` from the container.
-
-## Server Layout
-
-```
-/opt/paperclip/
-├── repo/                       # full repo clone (required for docker build context)
-│   ├── docker-compose.yml
-│   ├── docker-compose.override.yml  # restart policy + port overrides
-│   ├── Dockerfile
-│   ├── .env                    # generated, contains secrets (compose reads from working dir)
-│   └── ...                     # full source tree
-└── scripts/
-    ├── deploy.sh               # first-time setup
-    ├── bootstrap-board.sh      # post-deploy board user setup
-    └── update.sh               # pull + rebuild + restart
-```
-
-The full repo clone is required because `docker compose build` needs the complete source tree as build context (the Dockerfile copies `package.json` files, source code, and builds the UI + server).
-
-### Repo location in codebase
-
-Deployment scripts live at `deploy/server-b/` in the repo, keeping SHQ deployment config separate from upstream per fork discipline.
+| Data | Managed by | Persistence |
+|------|-----------|-------------|
+| PostgreSQL data | Railway Postgres volume | Persistent, Railway-managed, built-in backups |
+| Paperclip home (uploads, config, secrets key) | Railway volume on server service | Persistent across deploys |
 
 ## Environment Configuration
 
-### Generated at deploy time
+### Railway variables
 
 | Variable | Value | Notes |
 |----------|-------|-------|
-| `BETTER_AUTH_SECRET` | 64-char random hex | Generated by `deploy.sh` via `openssl rand -hex 32` |
-
-### Set at deploy time (defaults)
-
-| Variable | Value | Notes |
-|----------|-------|-------|
-| `DATABASE_URL` | `postgres://paperclip:paperclip@db:5432/paperclip` | Internal Docker network |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Railway variable reference, auto-linked |
+| `BETTER_AUTH_SECRET` | 64-char random hex | Sealed variable (write-only after set) |
 | `PAPERCLIP_DEPLOYMENT_MODE` | `authenticated` | Login required |
-| `PAPERCLIP_DEPLOYMENT_EXPOSURE` | `private` | Tailscale/private network |
-| `PORT` | `3100` | Default |
-
-### Fill in later (networking ticket)
-
-| Variable | Value | Notes |
-|----------|-------|-------|
-| `PAPERCLIP_PUBLIC_URL` | `http://localhost:3100` (placeholder) | Replace with Tailscale/Cloudflare URL when networking ticket is done |
-| `PAPERCLIP_ALLOWED_HOSTNAMES` | (empty) | Additional Tailscale hostnames if needed |
-
-**Temporary access for bootstrap:** While `PAPERCLIP_PUBLIC_URL` is `localhost`, use an SSH tunnel to access the UI from your local machine:
-
-```sh
-ssh -L 3100:localhost:3100 server-b
-```
-
-Then open `http://localhost:3100` locally. Auth/invite URLs will resolve correctly through the tunnel since they reference `localhost:3100`.
+| `PAPERCLIP_DEPLOYMENT_EXPOSURE` | `private` | Private mode |
+| `PORT` | `3100` | Railway reads this to route traffic |
+| `SERVE_UI` | `true` | Serve UI from same process |
+| `PAPERCLIP_PUBLIC_URL` | `https://<app>.up.railway.app` | Set after domain is generated |
 
 ### Optional (agent adapters)
 
-API keys for adapters. Not required on Server B (agents run on Server C), but available for flexibility.
+API keys for adapters. Not required on the control plane (agents run separately), but available for flexibility.
 
 | Variable | Adapter |
 |----------|---------|
@@ -118,104 +108,132 @@ API keys for adapters. Not required on Server B (agents run on Server C), but av
 
 All local adapters fall back to subscription auth when API keys are not set.
 
-## Scripts
+## Deployment Steps (Railway)
 
-### `deploy.sh` (first-time setup)
+### First-time setup
 
-Idempotent. Safe to re-run.
+1. Create a Railway project (via dashboard or `railway init`)
+2. Add a PostgreSQL service (`railway add -d postgres`)
+3. Connect `Superuser-HQ/paperclip` private repo as a service (Railway GitHub App integration)
+4. Configure environment variables (see table above)
+   - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
+   - `BETTER_AUTH_SECRET` = generate with `openssl rand -hex 32`, mark as sealed
+   - Set remaining variables
+5. Generate a public domain (`railway domain` or via dashboard)
+6. Set `PAPERCLIP_PUBLIC_URL` to the generated domain
+7. Deploy (triggers automatically on repo connection, or `railway up`)
+8. Verify: `curl https://<app>.up.railway.app/api/health`
 
-1. Check prerequisites: ports 3100/5432 are free
-2. Install Docker + Docker Compose plugin if not present (Ubuntu `apt`)
-3. Create `/opt/paperclip/` directory structure
-4. Clone repo to `/opt/paperclip/repo/` (or `git pull` if already cloned)
-5. Generate `BETTER_AUTH_SECRET` (skip if `.env` already has one — never delete `.env` or existing sessions are invalidated)
-6. Write `.env` from template into `/opt/paperclip/repo/` (compose reads `.env` from its working directory)
-7. Build and start containers (`docker compose up -d --build` from repo dir)
-8. Wait for health check (`/api/health` returns `{"status":"ok"}`)
-9. Install and enable systemd service
-10. Print next steps
+### Board user bootstrap
 
-### `bootstrap-board.sh` (post-deploy)
+1. After first deploy, access the public URL directly (no SSH tunnel needed)
+2. Run bootstrap-ceo via Railway's shell or CLI:
+   ```sh
+   railway shell  # opens a shell in the running container
+   npx paperclipai@latest auth bootstrap-ceo --data-dir /paperclip --base-url "$PAPERCLIP_PUBLIC_URL"
+   ```
+3. Copy the invite URL from the output
+4. Open the invite URL in your browser, register with name/email/password
+5. Board member is promoted to instance admin
+6. Create the "Superuser HQ" company via the UI
 
-1. Wait for health check (`/api/health` returns `{"status":"ok"}`)
-2. Run `paperclipai auth bootstrap-ceo` inside the Paperclip container
-3. Verify invite URL was generated
-4. Print registration/claim instructions for board user (remind about SSH tunnel for first-time access)
+### Ongoing updates
 
-### `update.sh` (ongoing updates)
+Push to `main` — Railway auto-deploys. No manual intervention needed.
 
-1. `git pull` in `/opt/paperclip/repo/`
-2. Rebuild and restart (`docker compose up -d --build`)
-3. Wait for health check
-4. Print status
+For manual deploys: `railway up` from the repo directory.
 
-## Compose Customisation
+### Useful commands
 
-The production `docker-compose.yml` is used as-is with one addition: `restart: unless-stopped` on both services for container-level crash recovery.
+```sh
+# View logs
+railway logs
 
-This is applied via a `docker-compose.override.yml` in the repo dir (avoids modifying the upstream compose file):
+# Open shell in running container
+railway shell
 
-```yaml
-services:
-  db:
-    restart: unless-stopped
-  server:
-    restart: unless-stopped
+# Check service status
+railway status
+
+# View environment variables
+railway variables
+
+# Open Railway dashboard
+railway open
 ```
 
-### Restart model
+## Approach: Docker Compose (Fallback)
 
-- **Container crashes**: Docker restarts the container automatically (`restart: unless-stopped`)
-- **Host reboots**: Systemd starts Docker Compose on boot
-- **Temporary stop**: `docker compose down` stops cleanly; stack will restart on next boot (systemd still enabled)
-- **Permanent stop**: `systemctl stop paperclip && systemctl disable paperclip` — stops and prevents boot restart
+Self-hosted deployment on a VPS using Docker Compose. Use this if Railway is unavailable or if the deployment needs to run on-premise.
 
-## Systemd Integration
+The existing automation in `deploy/server-b/` provides:
 
-A `paperclip.service` unit file for auto-start on boot:
+| File | Purpose |
+|------|---------|
+| `deploy/server-b/deploy.sh` | First-time setup: Docker, repo clone, secrets, containers, systemd |
+| `deploy/server-b/bootstrap-board.sh` | Post-deploy: bootstrap-ceo, invite URL |
+| `deploy/server-b/update.sh` | Ongoing: git pull, rebuild, restart |
+| `deploy/server-b/docker-compose.override.yml` | Adds `restart: unless-stopped`, removes DB host port |
+| `deploy/server-b/paperclip.service` | Systemd unit for boot lifecycle |
+| `deploy/server-b/.env.template` | Environment config template |
+| `deploy/server-b/lib.sh` | Shared helpers (sourced by scripts) |
+| `deploy/server-b/README.md` | Deployment runbook |
 
-```ini
-[Unit]
-Description=Paperclip Control Plane
-After=docker.service network-online.target
-Requires=docker.service
-Wants=network-online.target
+### Server layout (Docker Compose)
 
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/paperclip/repo
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose down
-
-[Install]
-WantedBy=multi-user.target
+```
+/opt/paperclip/
+├── repo/                       # full repo clone (docker build context)
+│   ├── docker-compose.yml
+│   ├── docker-compose.override.yml
+│   ├── Dockerfile
+│   ├── .env
+│   └── ...
+└── scripts/
+    ├── deploy.sh
+    ├── bootstrap-board.sh
+    └── update.sh
 ```
 
-Systemd manages the stack lifecycle (start on boot, stop on shutdown). Container-level restarts are handled by Docker's `restart: unless-stopped` policy, not by systemd.
+### Docker Compose environment
 
-Installed and enabled by `deploy.sh`.
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `DATABASE_URL` | `postgres://paperclip:paperclip@db:5432/paperclip` | Internal Docker network |
+| `BETTER_AUTH_SECRET` | 64-char random hex | Generated by `deploy.sh` |
+| `PAPERCLIP_DEPLOYMENT_MODE` | `authenticated` | Login required |
+| `PAPERCLIP_DEPLOYMENT_EXPOSURE` | `private` | Tailscale/private network |
+| `PAPERCLIP_PUBLIC_URL` | `http://localhost:3100` (placeholder) | Replace with Tailscale/Cloudflare URL |
 
-## Board User Setup Flow
+### Docker Compose bootstrap
 
-1. Deploy with `deploy.sh` (containers start in `authenticated` mode)
-2. Server auto-migrates DB on first boot (auto-applies in Docker because stdin is non-TTY)
+1. Copy `deploy/server-b/` to the server
+2. Run `deploy.sh` (installs Docker, clones repo, starts containers)
 3. Open SSH tunnel: `ssh -L 3100:localhost:3100 server-b`
-4. Run `bootstrap-board.sh` — mints a bootstrap invite via `paperclipai auth bootstrap-ceo`
-5. Board member opens `http://localhost:3100` (through tunnel), registers using the invite
-6. Board member is promoted to instance admin
-7. Create the "Superuser HQ" company via UI
+4. Run `bootstrap-board.sh` (generates invite URL)
+5. Register via `http://localhost:3100`, create company
 
-This follows the documented bootstrap flow from `doc/DOCKER.md`.
+See `deploy/server-b/README.md` for the full runbook.
+
+## Linear Webhook Ingress
+
+With Railway, Linear webhooks point directly at the Railway public URL:
+
+```
+Linear → https://<app>.up.railway.app/api/webhooks/linear
+```
+
+No Cloudflare Tunnel needed. The Cloudflare Tunnel requirement from the original design is eliminated by Railway's native public URL with auto-SSL.
+
+For the Docker Compose fallback, Cloudflare Tunnel or Tailscale Funnel would still be needed for webhook ingress (separate ticket).
 
 ## Out of Scope
 
-- Tailscale setup (separate ticket)
-- Cloudflare Tunnel for Linear webhooks (separate ticket)
 - Agent deployment on Server C (separate ticket)
 - Agent persona/skill configuration (separate ticket)
+- Tailscale setup for inter-server communication (separate ticket, may be simplified or eliminated by Railway)
 
 ## Dependencies
 
-- Server B accessible via SSH
-- Ubuntu with internet access (for Docker + image pulls + repo clone)
+- Railway account with GitHub App connected to `Superuser-HQ/paperclip`
+- For Docker Compose fallback: VPS accessible via SSH with Ubuntu + internet access
