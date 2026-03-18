@@ -612,7 +612,6 @@ Key implementation details:
 - Filter `labelIds` against `shq_linear_label_routes` first (no API call needed for routing)
 - Task title format: `"DEV-123: Original title"` using `data.identifier`
 - Validate new issue data against `createIssueSchema` before insertion
-- Validate new issue data against `createIssueSchema` before insertion
 - Task creation must be **atomic**: wrap `shq_linear_issue_map` insert + `issueService.create()` in a `db.transaction()`. Insert the map row first — if the unique constraint fails, the transaction rolls back and no duplicate task is created. This is the durable dedup safety net.
 - On update with no mapping: treat as create (late-labeling)
 - On update with conflict: pause task (set status to `backlog`) AND cancel active heartbeat runs via `heartbeatService(db).cancelActiveForAgent(agentId)` to stop the agent from continuing work on a mis-routed task. Defer comment post.
@@ -741,7 +740,7 @@ git commit -m "feat: mount Linear webhook route in app.ts"
 - Modify: `server/src/services/linear-integration.ts`
 - Create: `server/src/__tests__/linear-init.test.ts`
 
-Note: The mount point in `app.ts` was already handled in Task 6 using `initializeLinearIntegration`. This task implements the initialization function itself.
+Note: Task 6 references `initializeLinearIntegration()` in its mount code. This task implements that function. Execute this task before Task 6.
 
 - [ ] **Step 1: Write failing test for initialization**
 
