@@ -189,7 +189,7 @@ All PRs require human merge (protected branches).
 
 ### Routing
 
-- Linear tickets tagged `dev` → Rem → specialist
+- Linear tickets tagged `engineering` → Rem → specialist
 - Linear tickets tagged `marketing` or `sales` → Kani → specialist
 - Untagged → ignored by agents
 
