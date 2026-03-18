@@ -143,7 +143,7 @@ Board (Yao + Gerald)
 │   ├── Social Media Analyst (Gemini)
 │   ├── Designer (Claude + image gen)
 │   └── Sales Rep (OpenClaw)
-└── Rem (OpenClaw) — Gerald's Chief of Staff (Dev)
+└── Rem (OpenClaw) — Gerald's Chief of Staff (Engineering)
     ├── Frontend Dev (Cursor)
     ├── Backend Dev (Codex)
     ├── DevOps Engineer (Claude)
@@ -189,7 +189,7 @@ All PRs require human merge (protected branches).
 
 ### Routing
 
-- Linear tickets tagged `dev` → Rem → specialist
+- Linear tickets tagged `engineering` → Rem → specialist
 - Linear tickets tagged `marketing` or `sales` → Kani → specialist
 - Untagged → ignored by agents
 
