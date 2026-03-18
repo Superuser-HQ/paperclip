@@ -345,6 +345,7 @@ export class LinearApiClient {
         grant_type: "client_credentials",
         client_id: this.clientId,
         client_secret: this.clientSecret,
+        actor: "app",
       }),
     });
     if (!resp.ok) {
@@ -611,11 +612,12 @@ Key implementation details:
 - Filter `labelIds` against `shq_linear_label_routes` first (no API call needed for routing)
 - Task title format: `"DEV-123: Original title"` using `data.identifier`
 - Validate new issue data against `createIssueSchema` before insertion
-- On create: insert into both `issues` (via issue service) and `shq_linear_issue_map`
+- Validate new issue data against `createIssueSchema` before insertion
+- Task creation must be **atomic**: wrap `shq_linear_issue_map` insert + `issueService.create()` in a `db.transaction()`. Insert the map row first — if the unique constraint fails, the transaction rolls back and no duplicate task is created. This is the durable dedup safety net.
 - On update with no mapping: treat as create (late-labeling)
-- On update with conflict: pause task (set status to `backlog`), defer comment
-- On DB unique constraint violation for `shq_linear_issue_map`: treat as no-op (durable dedup)
-- Wake agent via `heartbeatService(db).enqueueWakeup()` after task creation/reassignment
+- On update with conflict: pause task (set status to `backlog`) AND cancel active heartbeat runs via `heartbeatService(db).cancelActiveForAgent(agentId)` to stop the agent from continuing work on a mis-routed task. Defer comment post.
+- Wake agent via `heartbeatService(db).wakeup()` after task creation/reassignment
+- Call `logActivity()` explicitly for all mutation paths: create, reassign, cancel, conflict-pause, resume. The issue service does NOT auto-log — routes must call `logActivity()` from `server/src/services/index.ts`.
 - Defer Linear API calls (comment posting, fallback label queries) via `setImmediate` to stay within 5-second timeout
 
 Route factory signature accepts dependencies from boot-time initialization:
@@ -666,6 +668,8 @@ git commit -m "feat: implement Linear webhook event handling with task creation 
 ---
 
 ## Chunk 6: Route Registration and Integration
+
+**Depends on:** Chunk 7 (init function must exist before mounting). Implement Chunk 7 first, then this chunk.
 
 ### Task 6: Mount webhook route and update docs
 
@@ -729,7 +733,9 @@ git commit -m "feat: mount Linear webhook route in app.ts"
 
 ## Chunk 7: Boot-Time Initialization
 
-### Task 7: Add initialization function with secret resolution
+**Execute this chunk BEFORE Chunk 6.** Chunk 6 depends on the `initializeLinearIntegration()` function defined here.
+
+### Task 7: Implement initialization function with secret resolution
 
 **Files:**
 - Modify: `server/src/services/linear-integration.ts`
@@ -767,42 +773,53 @@ Add to `linear-integration.ts`:
 
 ```typescript
 import { eq } from "drizzle-orm";
-import { shqLinearConfig, companySecrets, companySecretVersions } from "@paperclipai/db";
+import { shqLinearConfig } from "@paperclipai/db";
+import { secretService } from "./secrets.js";
 
 export async function initializeLinearIntegration(db: Db): Promise<{
   client: LinearApiClient | null;
   labelCache: LinearLabelCache;
   config: typeof shqLinearConfig.$inferSelect | null;
+  webhookSecret: string | null;
 }> {
   const labelCache = new LinearLabelCache();
+  const secrets = secretService(db);
 
-  // Find config (single-company assumption)
+  // Find config (single-company assumption — config changes require restart)
   const configs = await db.select().from(shqLinearConfig).limit(1);
   if (configs.length === 0) {
-    return { client: null, labelCache, config: null };
+    return { client: null, labelCache, config: null, webhookSecret: null };
   }
 
   const config = configs[0];
 
-  // Resolve OAuth client secret from company_secrets
+  // Resolve secrets via Paperclip's secretService (handles provider-specific decryption)
   let resolvedClientSecret = "";
+  let resolvedWebhookSecret = "";
+
   if (config.oauthClientSecretId) {
-    const secretRows = await db
-      .select()
-      .from(companySecretVersions)
-      .where(eq(companySecretVersions.secretId, config.oauthClientSecretId))
-      .orderBy(companySecretVersions.version)
-      .limit(1);
-    if (secretRows.length > 0) {
-      // material is stored as JSON with the encrypted/plain value
-      const material = secretRows[0].material as Record<string, unknown>;
-      resolvedClientSecret = (material.value ?? material.plaintext ?? "") as string;
+    const secret = await secrets.getById(config.oauthClientSecretId);
+    if (secret) {
+      const bindings = await secrets.resolveEnvBindings(config.companyId, {
+        LINEAR_CLIENT_SECRET: { type: "secret_ref", secretId: secret.id, version: "latest" },
+      });
+      resolvedClientSecret = bindings.LINEAR_CLIENT_SECRET ?? "";
+    }
+  }
+
+  if (config.webhookSecretId) {
+    const secret = await secrets.getById(config.webhookSecretId);
+    if (secret) {
+      const bindings = await secrets.resolveEnvBindings(config.companyId, {
+        LINEAR_WEBHOOK_SECRET: { type: "secret_ref", secretId: secret.id, version: "latest" },
+      });
+      resolvedWebhookSecret = bindings.LINEAR_WEBHOOK_SECRET ?? "";
     }
   }
 
   if (!resolvedClientSecret) {
     console.warn("Linear OAuth client secret not found — Linear integration disabled");
-    return { client: null, labelCache, config };
+    return { client: null, labelCache, config, webhookSecret: null };
   }
 
   const client = new LinearApiClient(
@@ -820,7 +837,7 @@ export async function initializeLinearIntegration(db: Db): Promise<{
     console.warn("Failed to populate Linear label cache on boot:", err);
   }
 
-  return { client, labelCache, config };
+  return { client, labelCache, config, webhookSecret: resolvedWebhookSecret || null };
 }
 ```
 
@@ -908,12 +925,7 @@ Expected: `{"status":"ok"}`
 
 - [ ] **Step 3: Run migration on Railway**
 
-Railway auto-runs migrations on boot. Verify the new tables exist:
-
-```bash
-DATABASE_URL="postgresql://postgres:TbeCRvbCAgrhhCLkmLLICWSjTWOEEVFR@turntable.proxy.rlwy.net:43901/railway" \
-  npx drizzle-kit check
-```
+Railway auto-runs migrations on boot. Verify the new tables exist by checking the Railway logs for migration output, or connect via `railway shell` and inspect the database.
 
 - [ ] **Step 4: Create Linear OAuth app**
 
